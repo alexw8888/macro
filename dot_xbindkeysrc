@@ -83,7 +83,7 @@
   b:9    # usually BTN_EXTRA
 
 
-"/usr/bin/bash -lc 'sleep 0.08; /usr/bin/xdotool type --clearmodifiers warn-girl-dawn-tell; /usr/bin/xdotool keyup Control_L Control_R'"
+"/usr/bin/env MACRO_B64=YWJjZGVmZw== /usr/bin/bash -lc 'sleep 0.08; /usr/bin/xdotool type --clearmodifiers -- "$(printf %s "$MACRO_B64" | base64 -d)"; /usr/bin/xdotool keyup Control_L Control_R; /usr/bin/xdotool key Return'"
   control + F1
 
 ##################################
