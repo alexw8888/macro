@@ -244,5 +244,34 @@ Open a terminal:
 
 ---
 
+## 9) Logitech G Pro X: side buttons → switch desktops
+
+The G Pro X side buttons are programmed **in the mouse firmware** to send `Ctrl+Left` / `Ctrl+Right` (that is what switches Spaces on macOS). They emit key events, not mouse buttons, so they can never match a `b:8`/`b:9` binding in `xbindkeys` — the device simply never sends those.
+
+Instead they are remapped per-device with **input-remapper**, so the keyboard's own `Ctrl+Left`/`Ctrl+Right` keeps working normally. See [input-remapper/](input-remapper):
+
+- `presets/Logitech PRO X/desktop-switch.json`
+  - the mouse's own `Ctrl` → `disable` (swallowed, so it is not held down while switching)
+  - `Left` → `Super+Alt+Left` (GNOME `switch-to-workspace-left`)
+  - `Right` → `Super+Alt+Right` (GNOME `switch-to-workspace-right`)
+- `config.json` — autoload entry, so the preset is applied whenever the mouse connects
+
+Deploy it (re-run after editing a preset):
+
+```bash
+sudo apt install input-remapper
+./deploy_input_remapper.sh
+```
+
+Tweak or turn it off in the GUI (`input-remapper-gtk`) or with:
+
+```bash
+input-remapper-control --command stop --device "Logitech PRO X"
+```
+
+Set `INPUT_REMAPPER_CONFIG_DIR` to deploy to a directory other than `~/.config/input-remapper-2`.
+
+---
+
 **That’s it!** Your G604 should now trigger macros on Ubuntu (X11) with `xbindkeys` + `xdotool`.  
 If you want, paste your actual keycodes and the actions you want — I’ll generate a tailor-made `~/.xbindkeysrc` for you.
