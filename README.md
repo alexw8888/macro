@@ -263,6 +263,12 @@ sudo apt install input-remapper
 ./deploy_input_remapper.sh
 ```
 
+Undo it again (stops the injection and removes the preset plus its autoload entry, leaving the rest of `config.json` untouched):
+
+```bash
+./deploy_input_remapper.sh --revert
+```
+
 Tweak or turn it off in the GUI (`input-remapper-gtk`) or with:
 
 ```bash
