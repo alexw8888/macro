@@ -140,6 +140,33 @@ VIRTUAL_DISPLAY = "xvfb-run" in os.environ.get("XAUTHORITY", "")
 
 @unittest.skipUnless(VIRTUAL_DISPLAY and shutil.which("xbindkeys") and shutil.which("xdotool"), "Run with xvfb-run for isolated X11 integration checks")
 class DesktopTests(unittest.TestCase):
+    def test_replaces_legacy_daemonized_listener(self):
+        with isolated_home():
+            core.save_settings(settings())
+            core.atomic_write(core.bindings_path(), core.merge_bindings(""))
+            try:
+                subprocess.run(
+                    ["xbindkeys"], stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    check=True, timeout=5,
+                )
+                deadline = time.monotonic() + 2
+                old_pids = core.matching_daemons()
+                while not old_pids and time.monotonic() < deadline:
+                    time.sleep(.02)
+                    old_pids = core.matching_daemons()
+                self.assertTrue(old_pids)
+                core.apply_settings(settings())
+                new_pids = core.matching_daemons()
+                self.assertTrue(new_pids)
+                self.assertTrue(set(old_pids).isdisjoint(new_pids))
+                for pid in new_pids:
+                    args = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
+                    self.assertIn(b"-n", args)
+            finally:
+                for pid in core.matching_daemons():
+                    os.kill(pid, signal.SIGTERM)
+
     def test_start_shortcuts_restores_saved_bindings(self):
         with isolated_home():
             core.save_settings(settings())
@@ -151,6 +178,9 @@ class DesktopTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(core.bindings_path().read_text().count("--run"), 5)
                 self.assertTrue(core.matching_daemons())
+                for pid in core.matching_daemons():
+                    args = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
+                    self.assertIn(b"-n", args)
             finally:
                 for pid in core.matching_daemons():
                     os.kill(pid, signal.SIGTERM)
@@ -179,7 +209,7 @@ class DesktopTests(unittest.TestCase):
     def test_editor_and_all_five_global_shortcuts(self):
         import gi
         gi.require_version("Gtk", "3.0")
-        from gi.repository import Gtk
+        from gi.repository import Gio, Gtk
         import macro_app
 
         def pump(seconds=0.2):
@@ -191,6 +221,9 @@ class DesktopTests(unittest.TestCase):
 
         with isolated_home():
             app = macro_app.MacroApp()
+            # The installed editor may be open on the user's real display.
+            # Never register this test window with that running application.
+            app.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
             app.register(None)
             editor = macro_app.MacroWindow(app, settings())
             samples = ["first macro", "two\nlines", "quotes: '$HOME' $(id) `id`", "你好 café", "--literal-option\n"]
@@ -198,11 +231,9 @@ class DesktopTests(unittest.TestCase):
                 view.get_buffer().set_text(samples[index])
                 enter.set_active(index == 0)
             self.assertTrue(editor.dirty)
-            # Launch a controllable foreground daemon, using the default config.
-            core.save_settings(editor.collect())
-            core.atomic_write(core.bindings_path(), core.merge_bindings(""))
-            daemon_log = tempfile.TemporaryFile(mode="w+")
-            daemon = subprocess.Popen(["stdbuf", "-oL", "-eL", "xbindkeys", "-n", "-v"], stdout=daemon_log, stderr=subprocess.STDOUT)
+            # Exercise the real Save & Apply startup path, with no listener
+            # already running. A manually started foreground daemon hid the
+            # daemonized-startup bug in the original integration test.
             target = Gtk.Window(title="Text Macros Integration Target")
             target.set_default_size(500, 300)
             text = Gtk.TextView()
@@ -212,7 +243,10 @@ class DesktopTests(unittest.TestCase):
             try:
                 self.assertTrue(editor.on_save(), editor.status.get_text())
                 self.assertFalse(editor.dirty)
-                self.assertIn(daemon.pid, core.matching_daemons())
+                self.assertTrue(core.matching_daemons())
+                previous_pids = set(core.matching_daemons())
+                self.assertTrue(editor.on_save(), editor.status.get_text())
+                self.assertTrue(previous_pids.isdisjoint(core.matching_daemons()))
                 window_id = subprocess.check_output(["xdotool", "search", "--name", "^Text Macros Integration Target$"], text=True).splitlines()[0]
                 subprocess.run(["xdotool", "windowfocus", "--sync", window_id], check=True)
                 text.grab_focus()
@@ -233,20 +267,26 @@ class DesktopTests(unittest.TestCase):
                             pump(0.05)
                             buf = text.get_buffer()
                             actual = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), True)
-                        daemon_log.seek(0)
-                        self.assertEqual(actual, expected, daemon_log.read())
+                        self.assertEqual(actual, expected, core.read_text(core.config_dir() / "listener.log"))
+                        # The last character arrives on key-down; allow its
+                        # key-up and modifier cleanup to finish before retriggering.
+                        pump(0.2)
+                        # Reapplying after typing must replace the listener,
+                        # avoiding the signal-based reload that could hang it.
+                        previous_pids = set(core.matching_daemons())
+                        self.assertTrue(editor.on_save(), editor.status.get_text())
+                        self.assertTrue(previous_pids.isdisjoint(core.matching_daemons()))
                 # Closing the UI leaves the registered shortcuts available.
                 editor.destroy()
                 core.save_settings({"version": 1, "slots": [{"text": "after close", "press_enter": False}] + settings()["slots"][1:]})
                 text.get_buffer().set_text("")
                 subprocess.run(["xdotool", "key", "ctrl+F1"], check=True)
-                pump(0.7)
+                pump(2)
                 buf = text.get_buffer()
                 self.assertEqual(buf.get_text(buf.get_start_iter(), buf.get_end_iter(), True), "after close")
             finally:
-                daemon.terminate()
-                daemon.wait(timeout=5)
-                daemon_log.close()
+                for pid in core.matching_daemons():
+                    os.kill(pid, signal.SIGTERM)
                 editor.destroy()
                 target.destroy()
                 pump()

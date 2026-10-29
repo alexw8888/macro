@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 
@@ -21,6 +22,7 @@ APP_ID = "text-macros"
 BEGIN = "# BEGIN text-macros (managed by Text Macros)"
 END = "# END text-macros"
 SLOT_COUNT = 5
+TYPE_DELAY_MS = 100
 
 
 class MacroError(Exception):
@@ -204,19 +206,34 @@ def matching_daemons():
 
 
 def reload_shortcuts():
-    daemons = matching_daemons()
-    if daemons:
-        for pid in daemons:
-            try:
-                os.kill(pid, signal.SIGHUP)
-            except ProcessLookupError:
-                continue
-        # xbindkeys processes HUP on its next X event.
-        subprocess.run(["xdotool", "mousemove_relative", "--", "0", "0"], check=True, timeout=5)
-    else:
-        result = subprocess.run(["xbindkeys"], capture_output=True, text=True, timeout=5)
-        if result.returncode:
-            raise MacroError(result.stderr.strip() or result.stdout.strip() or "Could not start xbindkeys.")
+    daemons = set(matching_daemons())
+    # xbindkeys reloads Xlib/Guile state inside its SIGHUP handler. This can
+    # deadlock a live listener. Always start a fresh process when applying.
+    for pid in daemons:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + 2
+    while daemons.intersection(matching_daemons()):
+        if time.monotonic() >= deadline:
+            raise MacroError("Could not restart the old shortcut listener. Close it and click Save & Apply again.")
+        time.sleep(0.02)
+    log_path = config_dir() / "listener.log"
+    atomic_write(log_path, "")
+    with log_path.open("a", encoding="utf-8") as log:
+        listener = subprocess.Popen(
+            ["xbindkeys", "-n"], stdin=subprocess.DEVNULL,
+            stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+        )
+    try:
+        listener.wait(timeout=0.2)
+    except subprocess.TimeoutExpired:
+        # Reap the child if it exits while the editor remains open, while
+        # allowing it to outlive the editor or the login-startup helper.
+        threading.Thread(target=listener.wait, daemon=True).start()
+        return
+    raise MacroError(read_text(log_path).strip() or "Could not start xbindkeys.")
 
 
 def apply_settings(data):
@@ -257,21 +274,25 @@ def run_slot(number):
                     continue
                 if part in ("\n", "\r", "\r\n", "\t"):
                     key = "Tab" if part == "\t" else "Return"
-                    subprocess.run(["xdotool", "key", "--clearmodifiers", key], check=True, timeout=5)
-                else:
-                    # Remapped Unicode keys need time for the destination to
-                    # process the keymap change before xdotool restores it.
-                    delay = "12" if part.isascii() else "100"
                     subprocess.run(
-                        ["xdotool", "type", "--clearmodifiers", "--delay", delay, "--file", "-"],
-                        input=part, text=True, check=True, timeout=120,
+                        ["xdotool", "key", "--clearmodifiers", "--delay", str(TYPE_DELAY_MS), key],
+                        check=True, timeout=5,
+                    )
+                else:
+                    subprocess.run(
+                        ["xdotool", "type", "--clearmodifiers", "--delay", str(TYPE_DELAY_MS), "--file", "-"],
+                        input=part, text=True, check=True,
+                        timeout=max(120, len(part) * TYPE_DELAY_MS / 1000 + 10),
                     )
         finally:
             # If Ctrl was physically released while text was being typed,
             # --clearmodifiers may have restored it. Never leave it stuck down.
             subprocess.run(["xdotool", "keyup", "Control_L", "Control_R"], check=True, timeout=5)
         if slot["press_enter"]:
-            subprocess.run(["xdotool", "key", "--clearmodifiers", "Return"], check=True, timeout=5)
+            subprocess.run(
+                ["xdotool", "key", "--clearmodifiers", "--delay", str(TYPE_DELAY_MS), "Return"],
+                check=True, timeout=5,
+            )
 
 
 def main():

@@ -6,6 +6,9 @@ typing** setting. Empty slots do nothing. If your keyboard uses the function row
 for media controls, hold **Fn** as well, or turn on Fn Lock; Linux receives the
 resulting Ctrl+F1–F5 shortcut.
 
+Macros type at **0.1 seconds per character** (about 10 characters per second),
+including line breaks and tabs.
+
 ## Install and open the app
 
 On Ubuntu/Debian, in an **X11/Xorg** desktop session:
@@ -48,6 +51,10 @@ already uses a shortcut, remove that conflicting binding in its keyboard setting
   `~/.local/share/applications/text-macros.desktop` and
   `~/.config/autostart/text-macros.desktop`. These respect `XDG_DATA_HOME` and
   `XDG_CONFIG_HOME`. Re-run `bash install.sh` after updating the checkout.
+- The app starts a detached `xbindkeys -n` listener. Save & Apply stops the
+  existing listener for the same user/display/configuration and starts a fresh
+  one, avoiding signal-based reloads that can hang xbindkeys. Startup errors are logged
+  in `~/.config/text-macros/listener.log`.
 - This backend requires **X11**, not Wayland. Choose **Ubuntu on Xorg** at login.
   A `~/.xbindkeysrc.scm` configuration takes priority over the text file and must
   be moved aside before using the app.
@@ -56,10 +63,21 @@ already uses a shortcut, remove that conflicting binding in its keyboard setting
 
 To remove the app, delete the installed application directory, menu entry and
 autostart file listed above. Remove the marked `text-macros` section from
-`~/.xbindkeysrc` and reload xbindkeys (`pkill -HUP -x xbindkeys`, then move the
-mouse). Alternatively, restore `~/.xbindkeysrc.before-text-macros` if you have not
+`~/.xbindkeysrc` and restart xbindkeys. Alternatively, restore
+`~/.xbindkeysrc.before-text-macros` if you have not
 made other shortcut changes since installing. Your saved text can be kept or
 removed separately by deleting `~/.config/text-macros`.
+
+If shortcuts stop responding, restart the listener using your saved settings:
+
+```bash
+pkill -TERM -x xbindkeys
+/usr/bin/python3 ~/.local/share/text-macros/macro_core.py --start-shortcuts
+```
+
+Opening the updated editor and clicking **Save & Apply** also starts a fresh
+listener. After reinstalling an update, close and reopen the editor to load the
+updated code.
 
 ### Development checks
 
