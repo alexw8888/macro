@@ -1,4 +1,77 @@
-# Logitech G604 on Ubuntu (X11): Macros with `xbindkeys` + `xdotool`
+# Text Macros for Linux
+
+A native GTK app with **five editable text slots**, mapped to **Ctrl+F1 through
+Ctrl+F5**. Each slot supports multiline text and an optional **Press Enter after
+typing** setting. Empty slots do nothing. If your keyboard uses the function row
+for media controls, hold **Fn** as well, or turn on Fn Lock; Linux receives the
+resulting Ctrl+F1–F5 shortcut.
+
+## Install and open the app
+
+On Ubuntu/Debian, in an **X11/Xorg** desktop session:
+
+```bash
+sudo apt install python3-gi gir1.2-gtk-3.0 xbindkeys xdotool
+bash install.sh
+```
+
+Open **Text Macros** from your application menu. You can also run the editor
+directly from this checkout:
+
+```bash
+/usr/bin/python3 macro_app.py
+```
+
+1. Edit the five text boxes labeled **Ctrl+F1**, **Ctrl+F2**, **Ctrl+F3**,
+   **Ctrl+F4**, and **Ctrl+F5**.
+2. Optionally enable **Press Enter after typing** for a slot. This can submit a
+   message or command in the focused application. It is off by default for new slots.
+3. Click **Save & Apply** (or press **Ctrl+S**).
+4. Focus the destination text field, then press its shortcut.
+
+The shortcuts continue working after closing the editor. Installation adds login
+startup for saved shortcuts. Running directly from the checkout also works, but
+keep the checkout at the same location and use the installer for login startup.
+The editor asks before discarding unsaved changes. If a desktop or another app
+already uses a shortcut, remove that conflicting binding in its keyboard settings.
+
+### Settings and existing shortcuts
+
+- Text is stored locally in `~/.config/text-macros/macros.json` (respects
+  `XDG_CONFIG_HOME`), in a file readable only by your user. It is plain text.
+- The existing encoded Ctrl+F1 macro is imported on first use, including its
+  Enter setting. Changes are applied only when you click **Save & Apply**.
+- The app manages Ctrl+F1–F5 in `~/.xbindkeysrc`, preserving mouse bindings and
+  other shortcuts. The first original file is backed up to
+  `~/.xbindkeysrc.before-text-macros`.
+- Installation copies the app into `~/.local/share/text-macros` and adds
+  `~/.local/share/applications/text-macros.desktop` and
+  `~/.config/autostart/text-macros.desktop`. These respect `XDG_DATA_HOME` and
+  `XDG_CONFIG_HOME`. Re-run `bash install.sh` after updating the checkout.
+- This backend requires **X11**, not Wayland. Choose **Ubuntu on Xorg** at login.
+  A `~/.xbindkeysrc.scm` configuration takes priority over the text file and must
+  be moved aside before using the app.
+- The old `deploy.sh` replaces `~/.xbindkeysrc`. If you use it later, open the app
+  and click **Save & Apply** again to restore the five shortcuts.
+
+To remove the app, delete the installed application directory, menu entry and
+autostart file listed above. Remove the marked `text-macros` section from
+`~/.xbindkeysrc` and reload xbindkeys (`pkill -HUP -x xbindkeys`, then move the
+mouse). Alternatively, restore `~/.xbindkeysrc.before-text-macros` if you have not
+made other shortcut changes since installing. Your saved text can be kept or
+removed separately by deleting `~/.config/text-macros`.
+
+### Development checks
+
+```bash
+python3 -m unittest discover -s tests -v
+# Also exercises the real GTK editor and all five shortcuts on an isolated X11 display:
+xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -v
+```
+
+## Original mouse shortcut setup
+
+### Logitech G604 on Ubuntu (X11): Macros with `xbindkeys` + `xdotool`
 
 This README shows how to configure your Logitech **G604** extra buttons to run macros on **Ubuntu (X11)** using **xbindkeys** and **xdotool**, plus how to inspect button/key codes with **evtest** and **xinput**. It also includes autostart and troubleshooting tips.
 
